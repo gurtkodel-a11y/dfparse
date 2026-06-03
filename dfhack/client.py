@@ -85,7 +85,7 @@ class DFHackClient:
         self._writer.write(_encode_header(method_id, len(payload)) + payload)
         await self._drain()
 
-    async def _recv(self, response_class, timeout: float = 8.0):
+    async def _recv(self, response_class, timeout: float = 20.0):
         """Read one RPC reply, handling TEXT notifications along the way."""
         while True:
             try:
@@ -163,13 +163,12 @@ class DFHackClient:
         result = await self.call("GetDFVersion", output_class=pb.StringMessage)
         return result.value
 
-    async def run_command(self, command: str, *args: str) -> int:
-        """Run a DFHack console command. Returns the exit code."""
+    async def run_command(self, command: str, *args: str) -> None:
+        """Run a DFHack console command."""
         req = pb.CoreRunCommandRequest()
         req.command = command
         req.arguments.extend(args)
-        result = await self.call("RunCommand", req, pb.IntMessage)
-        return result.value
+        await self.call("RunCommand", req, pb.EmptyMessage)
 
     async def run_lua(self, module: str, function: str, *args: str) -> list[str]:
         """Call a Lua function by module and name. Returns list of string results."""
@@ -179,6 +178,15 @@ class DFHackClient:
         req.args.extend(args)
         result = await self.call("RunLua", req, pb.StringListMessage)
         return list(result.value)
+
+    async def get_game_date(self) -> tuple[int, str, int]:
+        """Return (year, season, tick_within_year) for the current in-game date.
+
+        season is one of: "spring", "summer", "autumn", "winter".
+        Requires rpc/date.lua installed in hack/lua/rpc/.
+        """
+        results = await self.run_lua("rpc.date", "get")
+        return int(results[0]), results[1], int(results[2])
 
     async def get_world_info(self):
         """Return basic world/fort information. Requires an active game."""
@@ -231,10 +239,41 @@ class DFHackClient:
                 results.append((name, int(count), int(total)))
         return results
 
+    async def get_creature_raws(self) -> dict[int, str]:
+        """Return race_id -> creature_id (e.g. {572: 'DWARF'}) for all creature raws.
+
+        Requires rpc/creatures.lua installed in hack/lua/rpc/.
+        """
+        raw = await self.run_lua("rpc.creatures", "all")
+        result = {}
+        for entry in raw:
+            idx, _, name = entry.partition(":")
+            if idx:
+                result[int(idx)] = name
+        return result
+
     async def list_squads(self):
         """Return a list of BasicSquadInfo for all active squads."""
         result = await self.call("ListSquads", pb.ListSquadsIn(), pb.ListSquadsOut)
         return list(result.value)
+
+    async def send_dig_command(
+        self,
+        designation: int,
+        locations: list[tuple[int, int, int]],
+    ) -> None:
+        """Designate tiles for digging. designation is a TileDigDesignation value.
+
+        locations is a list of (x, y, z) tile coordinates. DF must not be paused.
+        """
+        req = pb.DigCommand()
+        req.designation = int(designation)
+        for x, y, z in locations:
+            c = req.locations.add()
+            c.x = x
+            c.y = y
+            c.z = z
+        await self.call("SendDigCommand", req, pb.EmptyMessage, plugin="RemoteFortressReader")
 
     async def __aenter__(self):
         await self.connect()

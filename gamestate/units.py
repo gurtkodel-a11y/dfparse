@@ -45,9 +45,11 @@ def _singularize(name: str) -> str:
     """Best-effort singularization for DF work detail group names.
 
     DF's UI defaults group names to plural (Miners, Woodcutters, Farmers).
-    Handles the common -ers and plain -s cases that appear in practice.
+    Handles -ves (Fisherdwarves->Fisherdwarf), -s, and plain -ers.
     Does not strip -ss endings (Glass, Moss) or words shorter than 4 chars.
     """
+    if len(name) >= 5 and name.endswith("ves"):
+        return name[:-3] + "f"   # Fisherdwarves -> Fisherdwarf
     if len(name) >= 4 and name.endswith("s") and not name.endswith("ss"):
         return name[:-1]
     return name
@@ -244,23 +246,30 @@ class Unit:
         if self.has_left_map or self.is_incoming:
             return UnitKind.OFFMAP
 
-        in_player_civ = self.civ_id == player_civ_id
-        no_civ = self.civ_id == -1
-
-        if in_player_civ:
-            if self.race == player_race_id:
-                return UnitKind.CITIZEN
-            elif self.has_histfig:
-                return UnitKind.CIV_OTHER
-            else:
-                return UnitKind.CIV_ANIMAL
-
+        # Behavioural flags take priority over civ membership — merchants and
+        # diplomats from the player's own civilisation share civ_id but are
+        # visitors, not citizens.
         if self.is_merchant:
             return UnitKind.MERCHANT
         if self.is_diplomat:
             return UnitKind.DIPLOMAT
         if self.is_active_invader or self.is_invader_origin:
             return UnitKind.INVADER
+
+        in_player_civ = self.civ_id == player_civ_id
+        no_civ = self.civ_id == -1
+
+        if in_player_civ:
+            if self.race == player_race_id:
+                # Caravan guards are player-race, player-civ, but have no
+                # historical figure record. Real citizens always have one.
+                if not self.has_histfig:
+                    return UnitKind.VISITOR
+                return UnitKind.CITIZEN
+            elif self.has_histfig:
+                return UnitKind.CIV_OTHER
+            else:
+                return UnitKind.CIV_ANIMAL
 
         if no_civ:
             return UnitKind.NOTABLE_CREATURE if self.has_histfig else UnitKind.WILD_CREATURE

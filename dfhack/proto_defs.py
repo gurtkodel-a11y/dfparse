@@ -3,6 +3,8 @@ Programmatic protobuf message definitions for the DFHack remote protocol.
 Builds message classes using google.protobuf's descriptor API without needing protoc.
 """
 
+from enum import IntEnum
+
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 
 _pool = descriptor_pool.Default()
@@ -263,9 +265,48 @@ def _build_basic_api():
     _pool.Add(fp)
 
 
+def _build_rfr_dig():
+    """RemoteFortressReader dig designation messages (SendDigCommand RPC).
+
+    Must use package "RemoteFortressReader" so the bind request sends the correct
+    full type names (e.g. RemoteFortressReader.DigCommand) that the server registered.
+    """
+    fp = descriptor_pb2.FileDescriptorProto()
+    fp.name = "dfhack/RFRDig.proto"
+    fp.package = "RemoteFortressReader"
+    fp.syntax = "proto2"
+
+    e = fp.enum_type.add()
+    e.name = "TileDigDesignation"
+    for num, name in [
+        (0, "NO_DIG"),
+        (1, "DEFAULT_DIG"),
+        (2, "UP_DOWN_STAIR_DIG"),
+        (3, "CHANNEL_DIG"),
+        (4, "RAMP_DIG"),
+        (5, "DOWN_STAIR_DIG"),
+        (6, "UP_STAIR_DIG"),
+    ]:
+        ev = e.value.add(); ev.name = name; ev.number = num
+
+    m = fp.message_type.add()
+    m.name = "Coord"
+    _field(m, "x", 1, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "y", 2, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "z", 3, _TYPE_INT32, _LABEL_OPTIONAL)
+
+    m = fp.message_type.add()
+    m.name = "DigCommand"
+    _field(m, "designation", 1, _TYPE_ENUM,    _LABEL_OPTIONAL, type_name=".RemoteFortressReader.TileDigDesignation")
+    _field(m, "locations",   2, _TYPE_MESSAGE, _LABEL_REPEATED, type_name=".RemoteFortressReader.Coord")
+
+    _pool.Add(fp)
+
+
 _build_basic()           # must precede basic_api (dependency)
 _build_core_protocol()
 _build_basic_api()
+_build_rfr_dig()
 
 
 def _cls(full_name):
@@ -299,3 +340,17 @@ ListUnitsIn     = _cls("dfproto.ListUnitsIn")
 ListUnitsOut    = _cls("dfproto.ListUnitsOut")
 ListSquadsIn    = _cls("dfproto.ListSquadsIn")
 ListSquadsOut   = _cls("dfproto.ListSquadsOut")
+
+# RemoteFortressReader dig messages
+Coord      = _cls("RemoteFortressReader.Coord")
+DigCommand = _cls("RemoteFortressReader.DigCommand")
+
+
+class TileDigDesignation(IntEnum):
+    NO_DIG        = 0
+    DEFAULT_DIG   = 1  # dig walls, fell trees, gather plants, remove ramps
+    UP_DOWN_STAIR = 2
+    CHANNEL       = 3
+    RAMP          = 4
+    DOWN_STAIR    = 5
+    UP_STAIR      = 6
