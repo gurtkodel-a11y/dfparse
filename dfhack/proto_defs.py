@@ -303,10 +303,126 @@ def _build_rfr_dig():
     _pool.Add(fp)
 
 
+def _build_rfr_map():
+    """RemoteFortressReader map-reading messages (GetBlockList, GetMapInfo, GetTiletypeList RPCs)."""
+    fp = descriptor_pb2.FileDescriptorProto()
+    fp.name = "dfhack/RFRMap.proto"
+    fp.package = "RemoteFortressReader"
+    fp.syntax = "proto2"
+
+    # TiletypeShape enum
+    e = fp.enum_type.add()
+    e.name = "TiletypeShape"
+    for num, name in [
+        (-1, "NO_SHAPE"), (0, "EMPTY"), (1, "FLOOR"), (2, "BOULDER"),
+        (3, "PEBBLES"), (4, "WALL"), (5, "FORTIFICATION"),
+        (6, "STAIR_UP"), (7, "STAIR_DOWN"), (8, "STAIR_UPDOWN"),
+        (9, "RAMP"), (10, "RAMP_TOP"), (11, "BROOK_BED"), (12, "BROOK_TOP"),
+        (13, "TREE_SHAPE"), (14, "SAPLING"), (15, "SHRUB"), (16, "ENDLESS_PIT"),
+        (17, "BRANCH"), (18, "TRUNK_BRANCH"), (19, "TWIG"),
+    ]:
+        ev = e.value.add(); ev.name = name; ev.number = num
+
+    # TiletypeSpecial enum
+    e = fp.enum_type.add()
+    e.name = "TiletypeSpecial"
+    for num, name in [
+        (-1, "NO_SPECIAL"), (0, "NORMAL"), (1, "RIVER_SOURCE"), (2, "WATERFALL"),
+        (3, "SMOOTH"), (4, "FURROWED"), (5, "WET"), (6, "DEAD"),
+        (7, "WORN_1"), (8, "WORN_2"), (9, "WORN_3"), (10, "TRACK"), (11, "SMOOTH_DEAD"),
+    ]:
+        ev = e.value.add(); ev.name = name; ev.number = num
+
+    # TiletypeMaterial enum
+    e = fp.enum_type.add()
+    e.name = "TiletypeMaterial"
+    for num, name in [
+        (-1, "NO_MATERIAL"), (0, "AIR"), (1, "SOIL"), (2, "STONE"), (3, "FEATURE"),
+        (4, "LAVA_STONE"), (5, "MINERAL"), (6, "FROZEN_LIQUID"), (7, "CONSTRUCTION"),
+        (8, "GRASS_LIGHT"), (9, "GRASS_DARK"), (10, "GRASS_DRY"), (11, "GRASS_DEAD"),
+        (12, "PLANT"), (13, "HFS"), (14, "CAMPFIRE"), (15, "FIRE"), (16, "ASHES"),
+        (17, "MAGMA"), (18, "DRIFTWOOD"), (19, "POOL"), (20, "BROOK"), (21, "RIVER"),
+        (22, "ROOT"), (23, "TREE_MATERIAL"), (24, "MUSHROOM"), (25, "UNDERWORLD_GATE"),
+    ]:
+        ev = e.value.add(); ev.name = name; ev.number = num
+
+    # TiletypeVariant enum
+    e = fp.enum_type.add()
+    e.name = "TiletypeVariant"
+    for num, name in [(-1, "NO_VARIANT"), (0, "VAR_1"), (1, "VAR_2"), (2, "VAR_3"), (3, "VAR_4")]:
+        ev = e.value.add(); ev.name = name; ev.number = num
+
+    # Tiletype message
+    m = fp.message_type.add()
+    m.name = "Tiletype"
+    _field(m, "id",       1, _TYPE_INT32,  _LABEL_REQUIRED)
+    _field(m, "name",     2, _TYPE_STRING, _LABEL_OPTIONAL)
+    _field(m, "caption",  3, _TYPE_STRING, _LABEL_OPTIONAL)
+    _field(m, "shape",    4, _TYPE_ENUM,   _LABEL_OPTIONAL, type_name=".RemoteFortressReader.TiletypeShape")
+    _field(m, "special",  5, _TYPE_ENUM,   _LABEL_OPTIONAL, type_name=".RemoteFortressReader.TiletypeSpecial")
+    _field(m, "material", 6, _TYPE_ENUM,   _LABEL_OPTIONAL, type_name=".RemoteFortressReader.TiletypeMaterial")
+    _field(m, "variant",  7, _TYPE_ENUM,   _LABEL_OPTIONAL, type_name=".RemoteFortressReader.TiletypeVariant")
+    _field(m, "direction",8, _TYPE_STRING, _LABEL_OPTIONAL)
+
+    # TiletypeList message
+    m = fp.message_type.add()
+    m.name = "TiletypeList"
+    _field(m, "tiletype_list", 1, _TYPE_MESSAGE, _LABEL_REPEATED, type_name=".RemoteFortressReader.Tiletype")
+
+    # BlockRequest message — coordinates are block units (x/y) or z-levels (z)
+    m = fp.message_type.add()
+    m.name = "BlockRequest"
+    _field(m, "blocks_needed", 1, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "min_x",         2, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "max_x",         3, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "min_y",         4, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "max_y",         5, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "min_z",         6, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "max_z",         7, _TYPE_INT32, _LABEL_OPTIONAL)
+    _field(m, "force_reload",  8, _TYPE_BOOL,  _LABEL_OPTIONAL)
+
+    # MapBlock — one 16×16 block of tiles at a single z-level.
+    # map_x/map_y are block coords (tile = block * 16); map_z is tile z-level.
+    # tiles: 256 tiletype IDs (index = lx + ly*16); water/magma: 256 depth values (0-7).
+    # Fields 5–8 (materials) are intentionally omitted — unknown fields are skipped.
+    m = fp.message_type.add()
+    m.name = "MapBlock"
+    _field(m, "map_x",  1, _TYPE_INT32, _LABEL_REQUIRED)
+    _field(m, "map_y",  2, _TYPE_INT32, _LABEL_REQUIRED)
+    _field(m, "map_z",  3, _TYPE_INT32, _LABEL_REQUIRED)
+    _field(m, "tiles",  4, _TYPE_INT32, _LABEL_REPEATED)
+    _field(m, "magma",  9, _TYPE_INT32, _LABEL_REPEATED)
+    _field(m, "water",  10, _TYPE_INT32, _LABEL_REPEATED)
+    _field(m, "hidden", 11, _TYPE_BOOL, _LABEL_REPEATED)
+
+    # BlockList — response from GetBlockList
+    m = fp.message_type.add()
+    m.name = "BlockList"
+    _field(m, "map_blocks", 1, _TYPE_MESSAGE, _LABEL_REPEATED, type_name=".RemoteFortressReader.MapBlock")
+    _field(m, "map_x",      2, _TYPE_INT32,   _LABEL_OPTIONAL)
+    _field(m, "map_y",      3, _TYPE_INT32,   _LABEL_OPTIONAL)
+
+    # MapInfo — overall map dimensions and origin
+    m = fp.message_type.add()
+    m.name = "MapInfo"
+    _field(m, "block_size_x",      1, _TYPE_INT32,  _LABEL_OPTIONAL)
+    _field(m, "block_size_y",      2, _TYPE_INT32,  _LABEL_OPTIONAL)
+    _field(m, "block_size_z",      3, _TYPE_INT32,  _LABEL_OPTIONAL)
+    _field(m, "block_pos_x",       4, _TYPE_INT32,  _LABEL_OPTIONAL)
+    _field(m, "block_pos_y",       5, _TYPE_INT32,  _LABEL_OPTIONAL)
+    _field(m, "block_pos_z",       6, _TYPE_INT32,  _LABEL_OPTIONAL)
+    _field(m, "world_name",        7, _TYPE_STRING, _LABEL_OPTIONAL)
+    _field(m, "world_name_english",8, _TYPE_STRING, _LABEL_OPTIONAL)
+    _field(m, "save_name",         9, _TYPE_STRING, _LABEL_OPTIONAL)
+
+    _pool.Add(fp)
+
+
 _build_basic()           # must precede basic_api (dependency)
 _build_core_protocol()
 _build_basic_api()
 _build_rfr_dig()
+_build_rfr_map()
 
 
 def _cls(full_name):
@@ -344,6 +460,38 @@ ListSquadsOut   = _cls("dfproto.ListSquadsOut")
 # RemoteFortressReader dig messages
 Coord      = _cls("RemoteFortressReader.Coord")
 DigCommand = _cls("RemoteFortressReader.DigCommand")
+
+# RemoteFortressReader map messages
+Tiletype     = _cls("RemoteFortressReader.Tiletype")
+TiletypeList = _cls("RemoteFortressReader.TiletypeList")
+BlockRequest = _cls("RemoteFortressReader.BlockRequest")
+MapBlock     = _cls("RemoteFortressReader.MapBlock")
+BlockList    = _cls("RemoteFortressReader.BlockList")
+MapInfo      = _cls("RemoteFortressReader.MapInfo")
+
+
+class TiletypeShape(IntEnum):
+    NO_SHAPE     = -1
+    EMPTY        = 0
+    FLOOR        = 1
+    BOULDER      = 2
+    PEBBLES      = 3
+    WALL         = 4
+    FORTIFICATION= 5
+    STAIR_UP     = 6
+    STAIR_DOWN   = 7
+    STAIR_UPDOWN = 8
+    RAMP         = 9
+    RAMP_TOP     = 10
+    BROOK_BED    = 11
+    BROOK_TOP    = 12
+    TREE_SHAPE   = 13
+    SAPLING      = 14
+    SHRUB        = 15
+    ENDLESS_PIT  = 16
+    BRANCH       = 17
+    TRUNK_BRANCH = 18
+    TWIG         = 19
 
 
 class TileDigDesignation(IntEnum):

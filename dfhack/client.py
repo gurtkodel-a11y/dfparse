@@ -252,10 +252,99 @@ class DFHackClient:
                 result[int(idx)] = name
         return result
 
+    async def get_buildings(self) -> list[str]:
+        """Return raw building strings from the Lua rpc.buildings module.
+
+        Each string has the format:
+            "id|btype_int|btype_str|subtype_int|subtype_str|x1|y1|z|x2|y2|build_stage|max_stage"
+        Parse with gamestate.buildings.Building.from_raw().
+        Player-built constructions (walls, floors) are excluded — they are in tile data.
+        """
+        return await self.run_lua("rpc.buildings", "all")
+
+    async def get_nobles(self) -> list[str]:
+        """Return raw noble-assignment lines from the Lua rpc.nobles module.
+
+        Line formats:
+          "meta|bookkeeper_precision=N|bookkeeper_cooldown=M|bookkeeper_settings=S|manager_cooldown=K"
+          "noble|CODE|display_name|position_id|histfig_id|unit_id|first_name"
+          "error|message"    (field-path failures; useful during development)
+        Parse with gamestate.nobles.NoblesReport.from_raw().
+        """
+        return await self.run_lua("rpc.nobles", "all")
+
+    async def get_noble_positions(self) -> list[str]:
+        """Return all defined noble position slots (including vacant ones).
+
+        Line format: "pos|CODE|display_name|position_id"
+        Calls rpc.nobles.positions().
+        """
+        return await self.run_lua("rpc.nobles", "positions")
+
+    async def get_stocks(self) -> list[str]:
+        """Return raw stock lines from the Lua rpc.stocks module.
+
+        Line formats:
+          "meta|precision=N|cooldown=M"      — bookkeeper state
+          "type|ITEM_TYPE|count"             — aggregate count per item type
+          "detail|ITEM_TYPE|material|count"  — per-material breakdown for consumables
+        Parse with gamestate.stocks.StockReport.from_raw().
+        """
+        return await self.run_lua("rpc.stocks", "all")
+
     async def list_squads(self):
         """Return a list of BasicSquadInfo for all active squads."""
         result = await self.call("ListSquads", pb.ListSquadsIn(), pb.ListSquadsOut)
         return list(result.value)
+
+    async def reset_map_hashes(self) -> None:
+        """Force the RFR plugin to mark all blocks dirty so GetBlockList returns them all.
+
+        RFR tracks per-block SHA256 hashes and skips blocks whose content hasn't
+        changed since the last call.  The hash state persists across connections, so
+        without this call GetBlockList often returns 0 blocks on a fresh client.
+        """
+        await self.call("ResetMapHashes", output_class=pb.EmptyMessage, plugin="RemoteFortressReader")
+
+    async def get_map_info(self):
+        """Return map dimensions and world-origin info."""
+        return await self.call("GetMapInfo", output_class=pb.MapInfo, plugin="RemoteFortressReader")
+
+    async def get_tiletype_list(self) -> list:
+        """Return all tiletype descriptors. Used to resolve tile IDs in MapBlock.tiles."""
+        result = await self.call("GetTiletypeList", output_class=pb.TiletypeList, plugin="RemoteFortressReader")
+        return list(result.tiletype_list)
+
+    async def get_block_list(
+        self,
+        min_x: int, max_x: int,
+        min_y: int, max_y: int,
+        min_z: int, max_z: int,
+        blocks_needed: int = 50000,
+        *,
+        reset_hashes: bool = True,
+    ) -> list:
+        """Return MapBlock objects for the requested region.
+
+        x/y are block coordinates (1 block = 16 tiles); z is tile z-level.
+        blocks_needed caps how many blocks DFHack returns per call; 50000 is
+        large enough to cover any single-z-level scan of a normal embark.
+
+        reset_hashes: call ResetMapHashes before the fetch (default True).
+        Pass False when making successive chunk calls under a single reset.
+        """
+        if reset_hashes:
+            await self.reset_map_hashes()
+        req = pb.BlockRequest()
+        req.blocks_needed = blocks_needed
+        req.min_x = min_x
+        req.max_x = max_x + 1  # DFHack iterates x < max_x (exclusive upper bound)
+        req.min_y = min_y
+        req.max_y = max_y + 1
+        req.min_z = min_z
+        req.max_z = max_z + 1
+        result = await self.call("GetBlockList", req, pb.BlockList, plugin="RemoteFortressReader")
+        return list(result.map_blocks)
 
     async def send_dig_command(
         self,

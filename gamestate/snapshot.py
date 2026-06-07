@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
+from gamestate.buildings import Building
 from gamestate.creatures import CreatureRaws
 from gamestate.units import Unit, UnitKind, UnitName, Pos
 from gamestate.work_details import WorkDetail
@@ -59,6 +60,8 @@ class Snapshot:
     work_details: list[WorkDetail]
     unmet_needs: list[tuple[str, int, int]]
     creature_raws: CreatureRaws = None
+    map_region: dict | None = None  # tile bounds captured in snapshot_tiles.json
+    buildings: list[Building] = None
 
     # ------------------------------------------------------------------
     # Loaders
@@ -160,6 +163,9 @@ class Snapshot:
         cr_raw = data.get("creature_raws")
         creature_raws = CreatureRaws.from_dict(cr_raw) if cr_raw else CreatureRaws({})
 
+        raw_buildings = data.get("buildings", [])
+        buildings = [Building.from_dict(b) for b in raw_buildings]
+
         return cls(
             snapshot_time=data["snapshot_time"],
             game_date=game_date,
@@ -168,6 +174,8 @@ class Snapshot:
             work_details=work_details,
             unmet_needs=unmet_needs,
             creature_raws=creature_raws,
+            map_region=data.get("map_region"),
+            buildings=buildings,
         )
 
     # ------------------------------------------------------------------
@@ -180,3 +188,26 @@ class Snapshot:
             u for u in self.units
             if u.kind(self.world.civ_id, self.world.race_id) == UnitKind.CITIZEN
         ]
+
+    def _buildings(self) -> list[Building]:
+        return self.buildings or []
+
+    def workshops(self) -> list[Building]:
+        """Completed workshops."""
+        return [b for b in self._buildings() if b.type_name == "Workshop" and b.is_complete]
+
+    def furnaces(self) -> list[Building]:
+        """Completed furnaces."""
+        return [b for b in self._buildings() if b.type_name == "Furnace" and b.is_complete]
+
+    def stockpiles(self) -> list[Building]:
+        """All stockpile zones."""
+        return [b for b in self._buildings() if b.type_name == "Stockpile"]
+
+    def zones(self) -> list[Building]:
+        """All activity zones (meeting halls, bedrooms, hospitals, barracks, etc.)."""
+        return [b for b in self._buildings() if b.type_name == "Civzone"]
+
+    def buildings_by_type(self, type_name: str) -> list[Building]:
+        """All buildings with the given type_name (e.g. 'Door', 'TradeDepot')."""
+        return [b for b in self._buildings() if b.type_name == type_name]
